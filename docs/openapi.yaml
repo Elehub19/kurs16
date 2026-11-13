@@ -1,0 +1,306 @@
+openapi: 3.0.3
+info:
+  title: star-recommendation API
+  description: >-
+    Рекомендательный сервис банка «Стар»: рекомендации банковских продуктов, управление динамическими
+    правилами, статистика их срабатываний и служебные методы.
+  version: 0.0.1-SNAPSHOT
+servers:
+  - url: http://localhost:8080
+    description: Локальный запуск
+tags:
+  - name: Recommendations
+    description: Рекомендации пользователям
+  - name: Rules
+    description: Динамические правила рекомендаций и их статистика
+  - name: Management
+    description: Служебные методы для внешних систем
+paths:
+  /recommendation/{user_id}:
+    get:
+      tags: [Recommendations]
+      summary: Получить рекомендации для пользователя
+      description: >-
+        Проверяет фиксированные правила (Invest 500, Top Saving, Простой кредит) и все динамические правила.
+        Если подходящих продуктов нет, массив `recommendations` пустой.
+      operationId: getRecommendations
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: Идентификатор пользователя в базе клиентов
+          schema:
+            type: string
+            format: uuid
+          example: cd515076-5d8a-44be-930e-8d4fcb79f42d
+      responses:
+        '200':
+          description: Рекомендации (возможно, пустой список)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+        '400':
+          description: Идентификатор не является UUID
+  /rule:
+    get:
+      tags: [Rules]
+      summary: Список всех динамических правил
+      operationId: listRules
+      responses:
+        '200':
+          description: Все правила
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleList'
+    post:
+      tags: [Rules]
+      summary: Создать динамическое правило
+      description: >-
+        Правило проверяется до сохранения: тип запроса, число и значения аргументов.
+        Для правила автоматически создаётся счётчик срабатываний со значением 0.
+      operationId: createRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleRequest'
+            example:
+              product_name: Простой кредит
+              product_id: ab138afb-f3ba-4a93-b74f-0fcee86d447f
+              product_text: Откройте мир выгодных кредитов с нами!
+              rule:
+                - query: USER_OF
+                  arguments: [CREDIT]
+                  negate: true
+                - query: TRANSACTION_SUM_COMPARE_DEPOSIT_WITHDRAW
+                  arguments: [DEBIT, '>']
+                  negate: false
+                - query: TRANSACTION_SUM_COMPARE
+                  arguments: [DEBIT, WITHDRAW, '>', '100000']
+                  negate: false
+      responses:
+        '200':
+          description: Созданное правило с присвоенным `id`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleResponse'
+        '400':
+          description: Некорректное правило или тело запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: 'Недопустимый тип продукта: GOLD. Допустимые: [DEBIT, SAVING, INVEST, CREDIT]'
+  /rule/stats:
+    get:
+      tags: [Rules]
+      summary: Статистика срабатываний правил
+      description: >-
+        Число срабатываний каждого динамического правила. Правила, которые ещё ни разу не сработали,
+        присутствуют в списке со значением 0.
+      operationId: getRuleStats
+      responses:
+        '200':
+          description: Статистика по всем правилам
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleStatsResponse'
+              example:
+                stats:
+                  - rule_id: 1
+                    count: 12
+                  - rule_id: 2
+                    count: 0
+  /rule/{id}:
+    delete:
+      tags: [Rules]
+      summary: Удалить правило
+      description: >-
+        Удаляет правило вместе с его счётчиком срабатываний. В пути можно передать идентификатор правила (число)
+        или `product_id` продукта (UUID) — тогда удаляются все правила этого продукта.
+        Если правила нет, ответ всё равно 204.
+      operationId: deleteRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Идентификатор правила (число) или идентификатор продукта (UUID)
+          schema:
+            type: string
+          examples:
+            ruleId:
+              summary: Идентификатор правила
+              value: '1'
+            productId:
+              summary: Идентификатор продукта
+              value: ab138afb-f3ba-4a93-b74f-0fcee86d447f
+      responses:
+        '204':
+          description: Правило удалено (или его не было)
+        '400':
+          description: Идентификатор не является ни числом, ни UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /management/clear-caches:
+    post:
+      tags: [Management]
+      summary: Сбросить кеши
+      description: >-
+        Очищает все закешированные результаты запросов к базе клиентов; следующие запросы снова обращаются к базе.
+        Тело запроса не передаётся.
+      operationId: clearCaches
+      responses:
+        '200':
+          description: Кеши очищены
+  /management/info:
+    get:
+      tags: [Management]
+      summary: Информация о сервисе
+      description: Имя и версия сервиса из `pom.xml` (если сервис запущен без сборки Maven, версия — `unknown`).
+      operationId: getInfo
+      responses:
+        '200':
+          description: Информация о сервисе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+              example:
+                name: star-recommendation
+                version: 0.0.1-SNAPSHOT
+components:
+  schemas:
+    Recommendation:
+      type: object
+      required: [name, id, text]
+      properties:
+        name:
+          type: string
+          example: Invest 500
+        id:
+          type: string
+          format: uuid
+          example: 147f6a0f-3b91-413b-ab99-87f081d60d5a
+        text:
+          type: string
+          description: Текстовое описание продукта
+    RecommendationResponse:
+      type: object
+      required: [user_id, recommendations]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recommendation'
+    RuleQuery:
+      type: object
+      required: [query, arguments]
+      properties:
+        query:
+          type: string
+          enum:
+            - USER_OF
+            - ACTIVE_USER_OF
+            - TRANSACTION_SUM_COMPARE
+            - TRANSACTION_SUM_COMPARE_DEPOSIT_WITHDRAW
+          description: |
+            Тип запроса и его аргументы:
+            * `USER_OF` — `[тип продукта]`: есть хотя бы одна транзакция по продуктам типа.
+            * `ACTIVE_USER_OF` — `[тип продукта]`: не меньше 5 транзакций.
+            * `TRANSACTION_SUM_COMPARE` — `[тип продукта, тип транзакции, операция, константа]`:
+              сумма транзакций сравнивается с константой (неотрицательное целое, помещается в int).
+            * `TRANSACTION_SUM_COMPARE_DEPOSIT_WITHDRAW` — `[тип продукта, операция]`:
+              сумма пополнений сравнивается с суммой трат.
+
+            Типы продуктов: `DEBIT`, `CREDIT`, `INVEST`, `SAVING`. Типы транзакций: `DEPOSIT`, `WITHDRAW`.
+            Операции: `>`, `<`, `=`, `>=`, `<=`.
+        arguments:
+          type: array
+          items:
+            type: string
+        negate:
+          type: boolean
+          default: false
+          description: Инвертировать результат запроса
+    RuleRequest:
+      type: object
+      required: [product_name, product_id, product_text, rule]
+      properties:
+        product_name:
+          type: string
+          description: Название рекомендуемого продукта
+        product_id:
+          type: string
+          format: uuid
+          description: Идентификатор рекомендуемого продукта
+        product_text:
+          type: string
+          description: Текст рекомендации
+        rule:
+          type: array
+          minItems: 1
+          description: Запросы правила; правило выполняется, если все запросы вернули true
+          items:
+            $ref: '#/components/schemas/RuleQuery'
+    RuleResponse:
+      allOf:
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: Сгенерированный идентификатор правила
+        - $ref: '#/components/schemas/RuleRequest'
+    RuleList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleResponse'
+    RuleStat:
+      type: object
+      required: [rule_id, count]
+      properties:
+        rule_id:
+          type: integer
+          format: int64
+        count:
+          type: integer
+          format: int64
+          description: Сколько раз правило сработало
+    RuleStatsResponse:
+      type: object
+      required: [stats]
+      properties:
+        stats:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleStat'
+    ServiceInfo:
+      type: object
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string

@@ -1,0 +1,47 @@
+// Диаграмма вариантов использования. Рендер: dot -Tpng use-case.dot -o use-case.png
+digraph usecase {
+  rankdir=LR;
+  fontname="DejaVu Sans";
+  node [fontname="DejaVu Sans", fontsize=11];
+  edge [fontname="DejaVu Sans", fontsize=9];
+  splines=true; nodesep=0.35; ranksep=1.2;
+
+  // Акторы
+  node [shape=box, style="filled", fillcolor="#fff4cc", color="#b58900", margin="0.2,0.12"];
+  user    [label="«actor»\nПользователь\n(клиент, сотрудник банка)"];
+  manager [label="«actor»\nМенеджер"];
+  system  [label="«actor»\nВнешняя система\n(мониторинг, оркестратор)"];
+
+  // Граница системы
+  subgraph cluster_system {
+    label="Система «star-recommendation»"; labeljust=l; style="rounded"; color="#555555"; fontsize=13;
+    node [shape=ellipse, style="filled", fillcolor="#e8f1fb", color="#2b6cb0"];
+
+    uc_rest  [label="UC-01 Получить рекомендации\nпо REST (GET /recommendation/{user_id})\nUS-01, US-02"];
+    uc_bot   [label="UC-02 Получить рекомендации\nв Telegram-боте (/recommend username)\nUS-09, US-10, US-11"];
+    uc_calc  [label="UC-03 Сформировать рекомендации\n(фиксированные + динамические правила)\nUS-03, US-08"];
+    uc_hit   [label="UC-04 Учесть срабатывание\nдинамического правила\nUS-12"];
+
+    uc_add   [label="UC-05 Добавить динамическое правило\n(POST /rule)\nUS-04, US-07"];
+    uc_del   [label="UC-06 Удалить правило и его статистику\n(DELETE /rule/{id})\nUS-05, US-13"];
+    uc_list  [label="UC-07 Посмотреть список правил\n(GET /rule)\nUS-06"];
+    uc_stats [label="UC-08 Посмотреть статистику\nсрабатываний (GET /rule/stats)\nUS-12"];
+
+    uc_clear [label="UC-09 Сбросить кеши\n(POST /management/clear-caches)\nUS-14"];
+    uc_info  [label="UC-10 Получить имя и версию сервиса\n(GET /management/info)\nUS-15"];
+  }
+
+  user -> uc_rest;
+  user -> uc_bot;
+  manager -> uc_add;
+  manager -> uc_del;
+  manager -> uc_list;
+  manager -> uc_stats;
+  system -> uc_clear;
+  system -> uc_info;
+
+  edge [style=dashed, arrowhead=open];
+  uc_rest -> uc_calc [label="«include»"];
+  uc_bot  -> uc_calc [label="«include»"];
+  uc_calc -> uc_hit  [label="«include»"];
+}

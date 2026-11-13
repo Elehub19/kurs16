@@ -1,0 +1,100 @@
+// Диаграмма компонентов. Рендер: dot -Tpng components.dot -o components.png
+digraph components {
+  rankdir=LR;
+  fontname="DejaVu Sans";
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="filled,rounded", fillcolor="#e8f1fb", color="#2b6cb0"];
+  edge [fontname="DejaVu Sans", fontsize=9, color="#444444"];
+  splines=true; nodesep=0.25; ranksep=0.9; compound=true;
+
+  // Внешние вызывающие
+  subgraph cluster_clients {
+    label="Откуда приходят вызовы"; style="dashed"; color="#888888"; fontsize=11;
+    node [fillcolor="#fff4cc", color="#b58900"];
+    user_app [label="Пользователь /\nклиентское приложение"];
+    manager  [label="Менеджер\n(Postman, curl)"];
+    monitor  [label="Внешняя система\n(мониторинг)"];
+    tg_user  [label="Пользователь\nTelegram"];
+  }
+
+  // Приложение
+  subgraph cluster_app {
+    label="star-recommendation (Spring Boot 3, Java 17)"; style="rounded"; color="#333333"; fontsize=12;
+
+    subgraph cluster_web {
+      label="controller (REST)"; style="rounded,dashed"; color="#2b6cb0";
+      RecCtl  [label="RecommendationController\nGET /recommendation/{user_id}"];
+      RuleCtl [label="RuleController\n/rule, /rule/stats"];
+      MgmtCtl [label="ManagementController\n/management/*"];
+    }
+
+    subgraph cluster_bot {
+      label="bot"; style="rounded,dashed"; color="#2b6cb0";
+      Listener [label="TelegramBotListener\n(long polling)"];
+      BotSvc   [label="BotService"];
+    }
+
+    subgraph cluster_svc {
+      label="service"; style="rounded,dashed"; color="#2b6cb0";
+      RecSvc   [label="RecommendationService"];
+      RuleSvc  [label="RuleService"];
+      StatsSvc [label="RuleStatsService"];
+    }
+
+    subgraph cluster_rules {
+      label="правила"; style="rounded,dashed"; color="#2b6cb0";
+      Static [label="Фиксированные наборы\n«RecommendationRuleSet»:\nInvest500, TopSaving, SimpleCredit"];
+      Dyn    [label="DynamicRuleEvaluator +\nRuleQueryHandler ×4\n(USER_OF, ACTIVE_USER_OF,\nTRANSACTION_SUM_COMPARE,\n..._DEPOSIT_WITHDRAW)"];
+    }
+
+    subgraph cluster_repo {
+      label="repository"; style="rounded,dashed"; color="#2b6cb0";
+      TxRepo    [label="TransactionsRepository\n(JdbcTemplate + кеши Caffeine)"];
+      UsersRepo [label="UsersRepository\n(JdbcTemplate)"];
+      RuleRepo  [label="RuleRepository\n(Spring Data JPA)"];
+      StatRepo  [label="RuleStatRepository\n(Spring Data JPA)"];
+    }
+  }
+
+  // Внешние системы, которые вызывает приложение
+  subgraph cluster_ext {
+    label="Внешние системы, которые вызывает приложение"; style="dashed"; color="#888888"; fontsize=11;
+    node [shape=cylinder, fillcolor="#e6f4ea", color="#2f855a"];
+    H2 [label="H2: transaction.mv.db\nбаза клиентов\n(только чтение)"];
+    PG [label="PostgreSQL\nправила и статистика\n(Liquibase)"];
+    node [shape=box, style="filled,rounded", fillcolor="#fde8e8", color="#c53030"];
+    TG [label="Telegram Bot API\n(HTTPS)"];
+  }
+
+  // Входящие вызовы
+  user_app -> RecCtl [label="HTTP"];
+  manager  -> RuleCtl [label="HTTP"];
+  monitor  -> MgmtCtl [label="HTTP"];
+  tg_user  -> TG [label="сообщения", style=dashed];
+  Listener -> TG [label="getUpdates /\nsendMessage", dir=both];
+
+  // Внутренние вызовы
+  RecCtl -> RecSvc;
+  RuleCtl -> RuleSvc;
+  RuleCtl -> StatsSvc [label="/rule/stats"];
+  MgmtCtl -> TxRepo [label="clearCaches()"];
+  Listener -> BotSvc;
+  BotSvc -> UsersRepo [label="username → id"];
+  BotSvc -> RecSvc;
+  RecSvc -> Static;
+  RecSvc -> Dyn;
+  RecSvc -> RuleRepo [label="findAll()"];
+  RecSvc -> StatsSvc [label="registerHit()"];
+  RuleSvc -> Dyn [label="validate()"];
+  RuleSvc -> RuleRepo;
+  RuleSvc -> StatsSvc [label="createCounter()"];
+  StatsSvc -> StatRepo;
+  StatsSvc -> RuleRepo [label="findAllIds()"];
+  Static -> TxRepo;
+  Dyn -> TxRepo;
+
+  // Обращения к хранилищам
+  TxRepo -> H2 [label="JDBC"];
+  UsersRepo -> H2 [label="JDBC"];
+  RuleRepo -> PG [label="JPA / JDBC"];
+  StatRepo -> PG [label="JPA / JDBC"];
+}

@@ -1,0 +1,72 @@
+// Диаграмма деятельности: алгоритм выдачи рекомендаций. Рендер: dot -Tpng activity-recommendation.dot -o activity-recommendation.png
+digraph activity {
+  rankdir=TB;
+  fontname="DejaVu Sans";
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="filled,rounded", fillcolor="#e8f1fb", color="#2b6cb0"];
+  edge [fontname="DejaVu Sans", fontsize=9];
+  splines=true; nodesep=0.4; ranksep=0.45;
+
+  start [shape=circle, label="", width=0.25, style=filled, fillcolor="black"];
+  stop  [shape=doublecircle, label="", width=0.22, style=filled, fillcolor="black"];
+  node [shape=diamond, style="filled", fillcolor="#fff4cc", color="#b58900", margin="0.05,0.02"];
+  d_more_static [label="Есть ещё\nфиксированные\nнаборы?"];
+  d_static_ok   [label="Все правила\nнабора\nвыполнены?"];
+  d_more_dyn    [label="Есть ещё\nдинамические\nправила?"];
+  d_more_q      [label="Есть ещё\nзапросы\nправила?"];
+  d_cached      [label="Результат\nв кеше?"];
+  d_valid       [label="Запрос\nкорректен?"];
+  d_q_ok        [label="Результат запроса\n(с учётом negate)\n= true?"];
+  d_dup         [label="Продукт уже\nв результате?"];
+
+  node [shape=box, style="filled,rounded", fillcolor="#e8f1fb", color="#2b6cb0"];
+  a_in      [label="Получен id пользователя\n(REST или Telegram-бот)"];
+  a_empty   [label="Результат = пустой упорядоченный набор\n(ключ — id продукта)"];
+  a_static  [label="Взять следующий фиксированный набор\n(Invest 500, Top Saving, Простой кредит)"];
+  a_eval_s  [label="Проверить правила набора\n(запросы к базе клиентов через кеш)"];
+  a_add_s   [label="Добавить продукт в результат"];
+  a_load    [label="Загрузить динамические правила\nиз PostgreSQL (findAll)"];
+  a_dyn     [label="Взять следующее динамическое правило"];
+  a_q       [label="Взять следующий запрос правила"];
+  a_cache   [label="Взять значение из кеша Caffeine"];
+  a_sql     [label="SQL-запрос к H2 (только чтение),\nзапись в кеш"];
+  a_apply   [label="Применить negate\nк результату запроса"];
+  a_warn    [label="Записать предупреждение в лог,\nпропустить правило"];
+  a_hit     [label="Увеличить счётчик срабатываний правила\nUPDATE rule_stats SET hit_count = hit_count + 1"];
+  a_add_d   [label="Добавить продукт в результат"];
+  a_out     [label="Вернуть список рекомендаций\n(возможно, пустой)"];
+
+  start -> a_in -> a_empty -> d_more_static;
+
+  // фиксированные правила
+  d_more_static -> a_static [label="да"];
+  a_static -> a_eval_s -> d_static_ok;
+  d_static_ok -> a_add_s [label="да"];
+  d_static_ok -> d_more_static [label="нет"];
+  d_more_static -> a_load [label="нет"];
+
+  // динамические правила
+  a_load -> d_more_dyn;
+  d_more_dyn -> a_dyn [label="да"];
+  d_more_dyn -> a_out [label="нет"];
+  a_dyn -> d_more_q;
+  d_more_q -> a_q [label="да"];
+  a_q -> d_valid;
+  d_valid -> d_cached [label="да"];
+  d_valid -> a_warn [label="нет"];
+  a_warn -> d_more_dyn;
+  d_cached -> a_cache [label="да"];
+  d_cached -> a_sql [label="нет"];
+  a_cache -> a_apply;
+  a_sql -> a_apply;
+  a_apply -> d_q_ok;
+  d_q_ok -> d_more_dyn [label="нет: правило\nне выполнено"];
+  d_q_ok -> d_more_q [label="да"];
+  d_more_q -> a_hit [label="нет: все запросы\nвыполнены"];
+  a_hit -> d_dup;
+  d_dup -> a_add_d [label="нет"];
+  d_dup -> d_more_dyn [label="да: повтор\nне добавляем"];
+  a_add_d -> d_more_dyn;
+
+  a_add_s -> d_more_static;
+  a_out -> stop;
+}
